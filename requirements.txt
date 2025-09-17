@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+scikit-learn
+plotly
+matplotlib
+seaborn
+reportlab
+kaleido   # needed for saving Plotly figures as images in PDF
+joblib
