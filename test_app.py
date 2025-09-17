@@ -10,44 +10,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 
-# =========================
-# Helper: Matplotlib Gauge for PDF
-# =========================
-def generate_static_gauge(value, avg, safe_limit=150, moderate_limit=250, max_val=400):
-    fig, ax = plt.subplots(figsize=(4, 2), subplot_kw={'projection': 'polar'})
-    theta = np.linspace(0, np.pi, 100)
-
-    # Zones
-    ax.bar(theta[:33], np.ones(33), width=np.pi/100, color="green", alpha=0.6)
-    ax.bar(theta[33:66], np.ones(33), width=np.pi/100, color="orange", alpha=0.6)
-    ax.bar(theta[66:], np.ones(34), width=np.pi/100, color="red", alpha=0.6)
-
-    # Needle for prediction
-    angle_pred = np.pi * value / max_val
-    ax.arrow(angle_pred, 0, 0, 0.9, width=0.02, head_width=0.06, head_length=0.1,
-             fc="black", ec="black")
-
-    # Needle for class average
-    angle_avg = np.pi * avg / max_val
-    ax.arrow(angle_avg, 0, 0, 0.8, width=0.01, head_width=0.05, head_length=0.08,
-             fc="blue", ec="blue")
-
-    # Clean chart
-    ax.set_yticklabels([])
-    ax.set_xticklabels([])
-    ax.set_theta_zero_location("W")
-    ax.set_theta_direction(-1)
-    plt.tight_layout()
-
-    buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-# =========================
-# Load model & dataset
-# =========================
+# Load trained model & dataset
 model = joblib.load("best_co2_model.pkl")
 df = pd.read_csv("co2 Emissions.csv")
 
@@ -57,7 +20,7 @@ st.set_page_config(page_title="🌍 CO₂ Emission Predictor", layout="wide")
 # Header
 # =========================
 st.title("🌍 CO₂ Emission Predictor")
-st.write("Enter vehicle details below to estimate *CO₂ emissions (g/km)*, compare with averages, and download a detailed report.")
+st.write("Enter vehicle details below to estimate CO₂ emissions (g/km), compare with averages, and download a detailed report.")
 
 # Sidebar inputs
 st.sidebar.header("🚗 Vehicle Inputs")
@@ -96,6 +59,7 @@ if st.sidebar.button("🔮 Predict CO₂ Emission"):
 
     # Compute class average
     avg_class_emission = df[df["Vehicle Class"] == vehicle_class]["CO2 Emissions(g/km)"].mean()
+    best_in_class = df[df["Vehicle Class"] == vehicle_class]["CO2 Emissions(g/km)"].min()
 
     # Classify emissions
     if prediction < 150:
@@ -120,13 +84,33 @@ if st.sidebar.button("🔮 Predict CO₂ Emission"):
         ]
 
     # =========================
+    # Gamification: Green Score
+    # =========================
+    max_emission = 400  # assume 400 g/km is worst case
+    green_score = max(0, min(100, 100 - (prediction / max_emission) * 100))
+
+    if green_score >= 70:
+        badge = "🌱 Eco"
+    elif green_score >= 40:
+        badge = "⚡ Moderate"
+    else:
+        badge = "🔥 Polluter"
+
+    st.subheader("🏆 Green Score")
+    st.markdown(
+        f"<h2 style='color:{color};'>Score: {green_score:.0f}/100 &nbsp; {badge}</h2>",
+        unsafe_allow_html=True
+    )
+    st.progress(int(green_score))
+
+    # =========================
     # Show Results
     # =========================
     st.markdown(
         f"## Estimated CO₂ Emission: <span style='color:{color}'>{prediction:.2f} g/km</span>",
         unsafe_allow_html=True
     )
-    st.markdown(f"### Emission Level: *{status}*")
+    st.markdown(f"### Emission Level: {status}")
 
     # =========================
     # Plotly Gauge Chart
@@ -172,6 +156,49 @@ if st.sidebar.button("🔮 Predict CO₂ Emission"):
 
     st.plotly_chart(fig, use_container_width=True)
 
+    # Save chart as image for PDF
+    chart_buf = BytesIO()
+    fig.write_image(chart_buf, format="png")
+    chart_buf.seek(0)
+
+    # =========================
+    # Emission Comparison (Bar Chart)
+    # =========================
+    st.subheader("📊 Emission Comparison")
+
+    comparison_data = {
+        "Your Car": prediction,
+        "Class Avg": avg_class_emission,
+        "Best in Class": best_in_class
+    }
+
+    fig_bar, ax = plt.subplots(figsize=(5, 3))
+    sns.barplot(x=list(comparison_data.keys()), y=list(comparison_data.values()), palette="viridis", ax=ax)
+    ax.set_ylabel("CO₂ Emissions (g/km)")
+    ax.set_title("Emission Comparison")
+
+    st.pyplot(fig_bar, use_container_width=True)
+
+    # Save bar chart for PDF
+    bar_buf = BytesIO()
+    fig_bar.savefig(bar_buf, format="png", bbox_inches="tight")
+    plt.close(fig_bar)
+    bar_buf.seek(0)
+
+    # =========================
+    # Savings with Hybrid/Electric
+    # =========================
+    hybrid_saving = prediction - 100  # assume hybrid emits ~100 g/km
+    electric_saving = prediction - 0  # assume EV emits ~0 g/km
+
+    st.subheader(" Potential Savings")
+    st.write(f"- If you switch to Hybrid, you save ~**{hybrid_saving:.0f} g/km CO2.")
+    st.write(f"- If you switch to Electric, you save ~**{electric_saving:.0f} g/km CO2.")
+
+    # Add to recommendations
+    tips.append(f"Switching to hybrid saves ~{hybrid_saving:.0f} g/km CO2.")
+    tips.append(f"Switching to electric saves ~{electric_saving:.0f} g/km CO2.")
+
     # =========================
     # Tips
     # =========================
@@ -190,11 +217,11 @@ if st.sidebar.button("🔮 Predict CO₂ Emission"):
         styles = getSampleStyleSheet()
         elements = []
 
-        elements.append(Paragraph(" CO2 Emission Report", styles["Title"]))
+        elements.append(Paragraph("CO2 Emission Report", styles["Title"]))
         elements.append(Spacer(1, 12))
 
         # Vehicle details
-        elements.append(Paragraph(" Vehicle Details", styles["Heading2"]))
+        elements.append(Paragraph("Vehicle Details", styles["Heading2"]))
         details = f"""
         Make: {make}<br/>
         Model: {model_name}<br/>
@@ -208,20 +235,32 @@ if st.sidebar.button("🔮 Predict CO₂ Emission"):
         elements.append(Spacer(1, 12))
 
         # Prediction
-        elements.append(Paragraph(" Prediction", styles["Heading2"]))
+        elements.append(Paragraph("Prediction", styles["Heading2"]))
         elements.append(Paragraph(f"Predicted CO2 Emission: <b>{prediction:.2f} g/km</b>", styles["Normal"]))
         elements.append(Paragraph(f"Emission Status: <b>{status}</b>", styles["Normal"]))
+        elements.append(Paragraph(f"Green Score: <b>{green_score:.0f}/100 {badge}</b>", styles["Normal"]))
         elements.append(Spacer(1, 12))
 
-        # Gauge Chart (Matplotlib static version for PDF)
-        elements.append(Paragraph(" Emission Gauge", styles["Heading2"]))
-        static_chart = generate_static_gauge(prediction, avg_class_emission)
-        chart_img = Image(static_chart, width=400, height=200)
+        # Gauge Chart
+        elements.append(Paragraph("Gauge Chart", styles["Heading2"]))
+        chart_img = Image(chart_buf, width=400, height=250)
         elements.append(chart_img)
         elements.append(Spacer(1, 12))
 
+        # Bar Chart
+        elements.append(Paragraph("Emission Comparison", styles["Heading2"]))
+        bar_img = Image(bar_buf, width=400, height=250)
+        elements.append(bar_img)
+        elements.append(Spacer(1, 12))
+
+        # Savings
+        elements.append(Paragraph("Potential CO2 Savings", styles["Heading2"]))
+        elements.append(Paragraph(f"- Hybrid: Save ~{hybrid_saving:.0f} g/km", styles["Normal"]))
+        elements.append(Paragraph(f"- Electric: Save ~{electric_saving:.0f} g/km", styles["Normal"]))
+        elements.append(Spacer(1, 12))
+
         # Tips
-        elements.append(Paragraph(" Eco-Friendly Suggestions:", styles["Heading2"]))
+        elements.append(Paragraph("Eco-Friendly Suggestions:", styles["Heading2"]))
         for t in tips:
             elements.append(Paragraph(f"- {t}", styles["Normal"]))
 
