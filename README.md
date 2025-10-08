@@ -47,7 +47,7 @@ This system uses a **Random Forest Regressor** model to estimate CO₂ emissions
 # Deployment
 
 The application is live on **Render** and can be accessed via:  
-👉 [Live Demo Link](https://dashboard.render.com/web/srv-d3574ed6ubrc73cusv00/events)  
+👉 [Live Demo Link](https://co2-emission-prediction-yaxq.onrender.com/)  
 
 The model is integrated into a Flask-based backend, which handles user inputs and prediction requests.
 
